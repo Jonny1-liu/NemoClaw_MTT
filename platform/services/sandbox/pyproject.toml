@@ -13,6 +13,7 @@ dependencies = [
     "alembic>=1.13",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "docker>=7.0",
     "shared",
 ]
 
