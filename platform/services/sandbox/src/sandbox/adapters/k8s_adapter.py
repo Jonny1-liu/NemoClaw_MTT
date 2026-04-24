@@ -230,6 +230,10 @@ class K8sAdapter(SandboxBackend):
     # ─── YAML 模板 ────────────────────────────────────────────
 
     def _namespace_yaml(self, namespace: str, tenant_id: str) -> str:
+        # 不設定 PodSecurity，因為 OpenShell sandbox Pod
+        # 需要 SYS_ADMIN / NET_ADMIN 等高權限能力。
+        # 安全控制由 OpenShell 的 Landlock / seccomp / OPA 在應用層處理，
+        # 不依賴 K8s PodSecurity Standards。
         return f"""apiVersion: v1
 kind: Namespace
 metadata:
@@ -237,7 +241,6 @@ metadata:
   labels:
     nemoclaw.ai/tenant-id: "{tenant_id}"
     nemoclaw.ai/managed-by: "nemoclaw-platform"
-    pod-security.kubernetes.io/enforce: baseline
 """
 
     def _resource_quota_yaml(self, namespace: str, resources) -> str:
