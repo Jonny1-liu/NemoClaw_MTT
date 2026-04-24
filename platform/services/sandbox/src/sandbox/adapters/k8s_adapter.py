@@ -103,41 +103,37 @@ class K8sAdapter(SandboxBackend):
     # ─── 生命週期 ──────────────────────────────────────────────
 
     async def create(self, spec: SandboxSpec) -> SandboxHandle:
-        namespace = self._tenant_namespace(spec.tenant_id)
-        pod_name  = spec.name    # 乾淨名稱，無前綴
-        log.info("k8s.create", namespace=namespace, pod=pod_name)
+        """
+        建立 Sandbox CRD，由 agent-sandbox-controller 負責：
+          1. 向 OpenShell gateway 登記 sandbox ID
+          2. 建立 Pod（含正確 env vars）
+          3. 建立 PVC 和 Service
 
-        # 1. 建立 tenant namespace（idempotent）
-        await self._apply(self._namespace_yaml(namespace, spec.tenant_id))
-
-        # 2. 套用 ResourceQuota
-        await self._apply(self._resource_quota_yaml(namespace, spec.resources))
-
-        # 3. 複製 openshell-client-tls secret 至 tenant namespace
-        await self._copy_secret(_TLS_SECRET_NAME, _OPENSHELL_NS, namespace)
-
-        # 4. 建立 workspace PVC
-        await self._apply(self._pvc_yaml(namespace, pod_name))
-
-        # 5. 產生 SSH handshake secret（每個 sandbox 獨立）
-        ssh_secret = secrets.token_hex(32)
+        Sandbox 建立於 openshell namespace。
+        命名格式：t-{tenant_prefix}-{sandbox_name}（確保唯一性）
+        """
+        crd_name  = self._make_crd_name(spec.tenant_id, spec.name)
         sandbox_id = str(uuid.uuid4())
+        ssh_secret = secrets.token_hex(32)
+        log.info("k8s.create_sandbox_crd", crd_name=crd_name,
+                 tenant=spec.tenant_id, user_name=spec.name)
 
-        # 6. 建立 sandbox Pod（使用動態偵測的映像）
-        await self._apply(self._pod_yaml(
-            namespace, pod_name, sandbox_id, ssh_secret, spec,
+        # 建立 Sandbox CRD（controller 負責其他所有事）
+        crd_yaml = self._sandbox_crd_yaml(
+            crd_name, sandbox_id, ssh_secret, spec,
             image=self._sandbox_image,
-        ))
+        )
+        await self._apply(crd_yaml)
 
-        # 7. 等待 Pod Ready（最多 120 秒）
-        await self._wait_ready(namespace, pod_name, timeout=120)
+        # 等待 Sandbox 進入 Ready 狀態（最多 120 秒）
+        await self._wait_sandbox_ready(crd_name, timeout=120)
 
-        log.info("k8s.created", namespace=namespace, pod=pod_name)
+        log.info("k8s.created", crd_name=crd_name)
         return SandboxHandle(
             sandbox_id=spec.sandbox_id,
-            external_id=pod_name,
+            external_id=crd_name,    # CRD 名稱（帶前綴，用於後續操作）
             adapter="k8s",
-            namespace=namespace,   # 存入 handle，後續操作使用
+            namespace=_OPENSHELL_NS, # Sandbox CRD 在 openshell namespace
         )
 
     async def stop(self, handle: SandboxHandle) -> None:
@@ -152,48 +148,38 @@ class K8sAdapter(SandboxBackend):
         log.info("k8s.start_noop", pod=handle.external_id)
 
     async def destroy(self, handle: SandboxHandle) -> None:
-        namespace = self._handle_namespace(handle)
-        pod_name  = handle.external_id
-        log.info("k8s.destroy", namespace=namespace, pod=pod_name)
-
-        # 刪除 Pod
+        """刪除 Sandbox CRD（controller 會自動清除 Pod、PVC、Service）"""
+        crd_name = handle.external_id
+        log.info("k8s.destroy_sandbox_crd", crd_name=crd_name)
         await self._kubectl(
-            f"delete pod {pod_name} -n {namespace} --ignore-not-found=true"
+            f"delete sandbox {crd_name} -n {_OPENSHELL_NS} --ignore-not-found=true"
         )
-        # 刪除 PVC（釋放儲存空間）
-        await self._kubectl(
-            f"delete pvc workspace-{pod_name} -n {namespace} --ignore-not-found=true"
-        )
-        log.info("k8s.destroyed", namespace=namespace, pod=pod_name)
+        log.info("k8s.destroyed", crd_name=crd_name)
 
     # ─── 狀態查詢 ──────────────────────────────────────────────
 
     async def get_status(self, handle: SandboxHandle) -> SandboxStatus:
-        namespace = self._handle_namespace(handle)
+        """透過 Sandbox CRD 狀態查詢"""
         try:
             out = await self._kubectl(
-                f"get pod {handle.external_id} -n {namespace} -o json"
+                f"get sandbox {handle.external_id} -n {_OPENSHELL_NS} -o json"
             )
-            return self._parse_pod_status(out)
+            return self._parse_sandbox_crd_status(out)
         except RuntimeError:
             return SandboxStatus(phase=SandboxPhase.ERROR,
-                                 error_msg="Pod not found")
+                                 error_msg="Sandbox CRD not found")
 
-    def _parse_pod_status(self, pod_json: str) -> SandboxStatus:
+    def _parse_sandbox_crd_status(self, crd_json: str) -> SandboxStatus:
         try:
-            pod = json.loads(pod_json)
-            phase = pod.get("status", {}).get("phase", "Unknown")
-            phase_map = {
-                "Running": SandboxPhase.RUNNING,
-                "Pending": SandboxPhase.CREATING,
-                "Failed":  SandboxPhase.ERROR,
-                "Succeeded": SandboxPhase.STOPPED,
-            }
-            return SandboxStatus(
-                phase=phase_map.get(phase, SandboxPhase.ERROR),
-                started_at=datetime.now(tz=timezone.utc)
-                           if phase == "Running" else None,
-            )
+            crd = json.loads(crd_json)
+            conditions = crd.get("status", {}).get("conditions", [])
+            for cond in conditions:
+                if cond.get("type") == "Ready" and cond.get("status") == "True":
+                    return SandboxStatus(
+                        phase=SandboxPhase.RUNNING,
+                        started_at=datetime.now(tz=timezone.utc),
+                    )
+            return SandboxStatus(phase=SandboxPhase.CREATING)
         except (json.JSONDecodeError, KeyError) as e:
             return SandboxStatus(phase=SandboxPhase.ERROR, error_msg=str(e))
 
@@ -250,7 +236,147 @@ class K8sAdapter(SandboxBackend):
     ) -> None:
         log.info("k8s.restore_todo", snapshot_id=ref.snapshot_id)
 
-    # ─── YAML 模板 ────────────────────────────────────────────
+    # ─── Sandbox CRD 模板（正確做法）────────────────────────────
+
+    def _sandbox_crd_yaml(
+        self,
+        crd_name:   str,
+        sandbox_id: str,
+        ssh_secret: str,
+        spec:       SandboxSpec,
+        image:      str = _SANDBOX_IMAGE_FALLBACK,
+    ) -> str:
+        """
+        建立 Sandbox CRD（基於 asus-claw 的結構，v0.0.36 格式）。
+        agent-sandbox-controller 監聽此 CRD 並自動：
+          - 向 OpenShell gateway 登記 sandbox_id
+          - 建立 Pod、PVC、Service
+        """
+        inference_ep = (
+            spec.inference_config.endpoint
+            if spec.inference_config else "http://inference-gw:3003/v1"
+        )
+        return f"""apiVersion: agents.x-k8s.io/v1alpha1
+kind: Sandbox
+metadata:
+  name: {crd_name}
+  namespace: {_OPENSHELL_NS}
+  labels:
+    openshell.ai/managed-by: openshell
+    openshell.ai/sandbox-id: "{sandbox_id}"
+    nemoclaw.ai/tenant-id: "{spec.tenant_id}"
+    nemoclaw.ai/user-sandbox-name: "{spec.name}"
+spec:
+  podTemplate:
+    spec:
+      hostAliases:
+      - ip: "172.17.0.1"
+        hostnames:
+        - host.docker.internal
+        - host.openshell.internal
+      initContainers:
+      - name: workspace-init
+        image: {image}
+        imagePullPolicy: Never
+        command: ["sh", "-c"]
+        args:
+        - |
+          if [ ! -f /workspace-pvc/.workspace-initialized ]; then
+            if [ -d /sandbox ]; then
+              tar -C /sandbox -cf - . | tar -C /workspace-pvc -xpf -
+            fi
+            touch /workspace-pvc/.workspace-initialized
+          fi
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace-pvc
+      containers:
+      - name: agent
+        image: {image}
+        imagePullPolicy: Never
+        command: ["/opt/openshell/bin/openshell-sandbox"]
+        env:
+        - name: OPENSHELL_SANDBOX_ID
+          value: "{sandbox_id}"
+        - name: OPENSHELL_SANDBOX
+          value: "{crd_name}"
+        - name: OPENSHELL_ENDPOINT
+          value: "{_OPENSHELL_ENDPOINT}"
+        - name: OPENSHELL_SANDBOX_COMMAND
+          value: "sleep infinity"
+        - name: OPENSHELL_SSH_SOCKET_PATH
+          value: "/run/openshell/ssh.sock"
+        - name: OPENSHELL_SSH_HANDSHAKE_SECRET
+          value: "{ssh_secret}"
+        - name: OPENSHELL_SSH_HANDSHAKE_SKEW_SECS
+          value: "300"
+        - name: OPENSHELL_TLS_CA
+          value: "/etc/openshell-tls/client/ca.crt"
+        - name: OPENSHELL_TLS_CERT
+          value: "/etc/openshell-tls/client/tls.crt"
+        - name: OPENSHELL_TLS_KEY
+          value: "/etc/openshell-tls/client/tls.key"
+        - name: NEMOCLAW_INFERENCE_ENDPOINT
+          value: "{inference_ep}"
+        securityContext:
+          runAsUser: 0
+          capabilities:
+            add: [SYS_ADMIN, NET_ADMIN, SYS_PTRACE, SYSLOG]
+        volumeMounts:
+        - name: openshell-client-tls
+          mountPath: /etc/openshell-tls/client
+          readOnly: true
+        - name: openshell-supervisor-bin
+          mountPath: /opt/openshell/bin
+          readOnly: true
+        - name: workspace
+          mountPath: /sandbox
+      volumes:
+      - name: openshell-client-tls
+        secret:
+          secretName: {_TLS_SECRET_NAME}
+          defaultMode: 256
+      - name: openshell-supervisor-bin
+        hostPath:
+          path: /opt/openshell/bin
+          type: DirectoryOrCreate
+  volumeClaimTemplates:
+  - metadata:
+      name: workspace
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 2Gi
+"""
+
+    async def _wait_sandbox_ready(self, crd_name: str, timeout: int = 120) -> None:
+        """等待 Sandbox CRD 進入 Ready 狀態"""
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self._container.exec_run(
+                f"kubectl wait sandbox/{crd_name} "
+                f"-n {_OPENSHELL_NS} "
+                f"--for=condition=Ready "
+                f"--timeout={timeout}s",
+                user="root",
+            )
+        )
+
+    def _make_crd_name(self, tenant_id: str, sandbox_name: str) -> str:
+        """
+        產生 Sandbox CRD 名稱（在 openshell namespace 內唯一）
+        格式：t-{tenant_id 前8碼}-{sandbox_name}
+        用戶看到的是 sandbox_name（存在 DB），CRD 名稱是內部的
+        """
+        tenant_prefix = _sanitize(tenant_id[:8])
+        name = _sanitize(sandbox_name)
+        result = f"t-{tenant_prefix}-{name}"
+        return result[:63].rstrip("-")
+
+    # ─── 舊版 YAML 模板（保留供參考，已改用 CRD 方式）──────────
 
     def _namespace_yaml(self, namespace: str, tenant_id: str) -> str:
         # 不設定 PodSecurity，因為 OpenShell sandbox Pod
