@@ -43,8 +43,8 @@ log = structlog.get_logger()
 # OpenShell cluster Docker 容器名稱的匹配字串
 _CONTAINER_PATTERN = "openshell-cluster"
 
-# Sandbox Pod 的映像（從 asus-claw 實際 Pod YAML 取得）
-_SANDBOX_IMAGE = "openshell/sandbox-from:1776837995"
+# Sandbox Pod 映像（啟動時從 asus-claw pod 動態偵測，無需在 NemoClaw 升版時修改）
+_SANDBOX_IMAGE_FALLBACK = "openshell/sandbox-from:latest"
 
 # OpenShell gRPC endpoint（容器內 k3s 的 Service DNS）
 _OPENSHELL_ENDPOINT = "https://openshell.openshell.svc.cluster.local:8080"
@@ -64,9 +64,11 @@ class K8sAdapter(SandboxBackend):
         import docker
         self._docker = docker.from_env()
         self._container = self._find_container(container_pattern)
+        # 動態偵測 sandbox 映像，跟著 NemoClaw 版本走
+        self._sandbox_image = self._detect_sandbox_image()
         log.info("k8s_adapter.initialized",
                  container=self._container.name,
-                 note="Using k3s inside OpenShell container")
+                 sandbox_image=self._sandbox_image)
 
     def _find_container(self, pattern: str):
         for c in self._docker.containers.list():
@@ -77,6 +79,26 @@ class K8sAdapter(SandboxBackend):
             f"No running container matching '{pattern}'. "
             "Is NemoClaw/OpenShell installed and running?"
         )
+
+    def _detect_sandbox_image(self) -> str:
+        """
+        從 asus-claw（OpenShell 的初始 sandbox）動態取得映像版本。
+        NemoClaw 升版時映像 tag 會改變，這樣不需要手動修改程式碼。
+        """
+        try:
+            result = self._container.exec_run(
+                ["kubectl", "get", "pod", "asus-claw", "-n", "openshell",
+                 "-o", "jsonpath={.spec.containers[0].image}"],
+                user="root", demux=True,
+            )
+            image = result.output[0].decode().strip() if result.output[0] else ""
+            if image:
+                log.info("k8s_adapter.image_detected", image=image)
+                return image
+        except Exception as e:
+            log.warning("k8s_adapter.image_detect_failed", error=str(e))
+        log.warning("k8s_adapter.using_fallback_image", image=_SANDBOX_IMAGE_FALLBACK)
+        return _SANDBOX_IMAGE_FALLBACK
 
     # ─── 生命週期 ──────────────────────────────────────────────
 
@@ -101,9 +123,10 @@ class K8sAdapter(SandboxBackend):
         ssh_secret = secrets.token_hex(32)
         sandbox_id = str(uuid.uuid4())
 
-        # 6. 建立 sandbox Pod
+        # 6. 建立 sandbox Pod（使用動態偵測的映像）
         await self._apply(self._pod_yaml(
-            namespace, pod_name, sandbox_id, ssh_secret, spec
+            namespace, pod_name, sandbox_id, ssh_secret, spec,
+            image=self._sandbox_image,
         ))
 
         # 7. 等待 Pod Ready（最多 120 秒）
@@ -281,6 +304,7 @@ spec:
         sandbox_id: str,
         ssh_secret: str,
         spec: SandboxSpec,
+        image: str = _SANDBOX_IMAGE_FALLBACK,
     ) -> str:
         """
         根據 asus-claw Pod YAML 模板建立新 sandbox Pod。
@@ -308,8 +332,8 @@ spec:
     - host.openshell.internal
   initContainers:
   - name: workspace-init
-    image: {_SANDBOX_IMAGE}
-    imagePullPolicy: IfNotPresent
+    image: {image}
+    imagePullPolicy: Never
     command: ["sh", "-c"]
     args:
     - |
@@ -333,8 +357,8 @@ spec:
       mountPath: /workspace-pvc
   containers:
   - name: agent
-    image: {_SANDBOX_IMAGE}
-    imagePullPolicy: IfNotPresent
+    image: {image}
+    imagePullPolicy: Never
     command: ["/opt/openshell/bin/openshell-sandbox"]
     resources:
       requests:
