@@ -113,36 +113,37 @@ class K8sAdapter(SandboxBackend):
 
     async def create(self, spec: SandboxSpec) -> SandboxHandle:
         """
-        建立 Sandbox CRD，由 agent-sandbox-controller 負責：
-          1. 向 OpenShell gateway 登記 sandbox ID
-          2. 建立 Pod（含正確 env vars）
-          3. 建立 PVC 和 Service
+        呼叫 openshell sandbox create 建立 sandbox。
+        這是唯一能正確向 OpenShell gateway 登記 sandbox spec 的方式。
 
-        Sandbox 建立於 openshell namespace。
-        命名格式：t-{tenant_prefix}-{sandbox_name}（確保唯一性）
+        執行步驟：
+          openshell sandbox create --name <crd_name> -- /bin/true
+          → gateway 登記 sandbox spec
+          → controller 建立 Pod
+          → /bin/true 立即退出，sandbox 繼續在背景運行
         """
-        crd_name  = self._make_crd_name(spec.tenant_id, spec.name)
-        sandbox_id = str(uuid.uuid4())
-        ssh_secret = secrets.token_hex(32)
-        log.info("k8s.create_sandbox_crd", crd_name=crd_name,
-                 tenant=spec.tenant_id, user_name=spec.name)
+        crd_name = self._make_crd_name(spec.tenant_id, spec.name)
+        log.info("k8s.create", crd_name=crd_name, tenant=spec.tenant_id)
 
-        # 建立 Sandbox CRD（controller 負責其他所有事）
-        crd_yaml = self._sandbox_crd_yaml(
-            crd_name, sandbox_id, ssh_secret, spec,
-            image=self._sandbox_image,
-        )
-        await self._apply(crd_yaml)
+        cmd = [
+            "openshell", "sandbox", "create",
+            "--name", crd_name,
+            "--no-bootstrap",
+            "--no-auto-providers",
+            "--no-tty",
+            "--", "/bin/true",   # 立即退出，sandbox 持續在背景運行
+        ]
+        await self._run_host(cmd)
 
-        # 等待 Sandbox 進入 Ready 狀態（最多 120 秒）
-        await self._wait_sandbox_ready(crd_name, timeout=120)
+        # 等待 openshell sandbox 進入 Ready 狀態
+        await self._wait_openshell_ready(crd_name, timeout=120)
 
         log.info("k8s.created", crd_name=crd_name)
         return SandboxHandle(
             sandbox_id=spec.sandbox_id,
-            external_id=crd_name,    # CRD 名稱（帶前綴，用於後續操作）
+            external_id=crd_name,
             adapter="k8s",
-            namespace=_OPENSHELL_NS, # Sandbox CRD 在 openshell namespace
+            namespace=_OPENSHELL_NS,
         )
 
     async def stop(self, handle: SandboxHandle) -> None:
@@ -157,12 +158,10 @@ class K8sAdapter(SandboxBackend):
         log.info("k8s.start_noop", pod=handle.external_id)
 
     async def destroy(self, handle: SandboxHandle) -> None:
-        """刪除 Sandbox CRD（controller 會自動清除 Pod、PVC、Service）"""
+        """使用 openshell sandbox delete 刪除 sandbox"""
         crd_name = handle.external_id
-        log.info("k8s.destroy_sandbox_crd", crd_name=crd_name)
-        await self._kubectl(
-            f"delete sandbox {crd_name} -n {_OPENSHELL_NS} --ignore-not-found=true"
-        )
+        log.info("k8s.destroy", crd_name=crd_name)
+        await self._run_host(["openshell", "sandbox", "delete", crd_name, "--yes"])
         log.info("k8s.destroyed", crd_name=crd_name)
 
     # ─── 狀態查詢 ──────────────────────────────────────────────
@@ -362,7 +361,7 @@ spec:
 """
 
     async def _wait_sandbox_ready(self, crd_name: str, timeout: int = 120) -> None:
-        """等待 Sandbox CRD 進入 Ready 狀態"""
+        """等待 Sandbox CRD 進入 Ready 狀態（kubectl wait）"""
         await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self._container.exec_run(
@@ -373,6 +372,51 @@ spec:
                 user="root",
             )
         )
+
+    async def _wait_openshell_ready(
+        self, crd_name: str, timeout: int = 120
+    ) -> None:
+        """
+        輪詢 openshell sandbox list 等待 sandbox 進入 Ready 狀態。
+        用於 openshell sandbox create 之後確認就緒。
+        """
+        import time
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                out = await self._run_host(
+                    ["openshell", "sandbox", "list", "--output", "json"],
+                    check=False,
+                )
+                if f'"name":"{crd_name}"' in out.replace(" ", ""):
+                    if "Ready" in out:
+                        log.info("k8s.sandbox_ready", crd_name=crd_name)
+                        return
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+        log.warning("k8s.sandbox_not_ready", crd_name=crd_name, timeout=timeout)
+
+    async def _run_host(
+        self, args: list[str], *, check: bool = True
+    ) -> str:
+        """在 Ubuntu host 上執行指令（不是在 container 內）"""
+        cmd_str = " ".join(args)
+        log.debug("k8s.host_exec", cmd=cmd_str)
+
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+
+        if check and proc.returncode != 0:
+            raise RuntimeError(
+                f"Command failed: {cmd_str}\n"
+                f"stderr: {stderr.decode()}"
+            )
+        return stdout.decode()
 
     def _make_crd_name(self, tenant_id: str, sandbox_name: str) -> str:
         """
