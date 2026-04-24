@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+.ruff_cache/
+
+# uv
+uv.lock
+
+# Environment
+.env
+*.env.local
+
+# Database
+*.db
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Temp files（診斷腳本輸出）
+diagnose_output.txt
+test_db_connection.py
+diagnose_openshell.py
+
+# Secrets（永遠不要 commit！）
+*.pem
+*.key
+*.crt
+*.p12

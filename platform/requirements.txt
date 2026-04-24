@@ -1,0 +1,54 @@
+# =============================================================
+# NemoClaw SaaS Platform — 完整 Python 依賴套件
+# =============================================================
+#
+# 安裝方式（擇一）：
+#
+#   方式 A：uv（推薦，與 NemoClaw 生態一致）
+#     pip install uv
+#     uv pip install -r requirements.txt
+#
+#   方式 B：標準 pip
+#     pip install -r requirements.txt
+#
+# 執行 Unit Test（不需要 Docker / API Key）：
+#     cd platform/
+#     pytest services/sandbox/tests/ -v
+#     pytest services/inference-gw/tests/ -v
+#     pytest services/tenant/tests/ -v
+#
+# =============================================================
+
+# ─── Web Framework ────────────────────────────────────────────
+fastapi==0.136.0
+uvicorn[standard]==0.34.2
+
+# ─── 資料驗證 / 設定 ──────────────────────────────────────────
+pydantic==2.11.4
+pydantic-settings==2.14.0
+
+# ─── 日誌 ─────────────────────────────────────────────────────
+structlog==25.5.0
+
+# ─── HTTP Client（服務間呼叫 + LLM API）──────────────────────
+httpx==0.28.1
+
+# ─── 資料庫（Tenant / Billing Service）───────────────────────
+asyncpg==0.31.0
+redis==7.4.0
+
+# ─── LLM Provider SDKs（Inference Gateway）───────────────────
+# 只需設定對應的 API Key，沒有 Key 的供應商不會被載入
+openai==2.32.0
+anthropic==0.96.0
+google-generativeai==0.8.6
+
+# ─── 計費（Billing Service）───────────────────────────────────
+stripe==15.0.1
+
+# ─── 測試工具 ─────────────────────────────────────────────────
+pytest==9.0.3
+pytest-asyncio==1.3.0
+
+# ─── 程式碼品質 ───────────────────────────────────────────────
+ruff==0.15.11

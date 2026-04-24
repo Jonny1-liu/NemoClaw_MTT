@@ -1,0 +1,118 @@
+---
+title: NemoClaw SaaS 目標架構（多租戶）
+---
+graph TB
+    subgraph Clients["用戶端"]
+        WebConsole["Web Console\n(Next.js)"]
+        CLIv2["CLI v2\n(calls API)"]
+        SDK["SDK\n(Python/Node.js)"]
+    end
+
+    subgraph Edge["邊緣層"]
+        CDN["CDN + WAF\n(CloudFront/Cloudflare)"]
+        APIGateway["API Gateway\n(Kong/Envoy)\n- JWT 驗證\n- Rate Limiting\n- WAF Rules"]
+    end
+
+    subgraph ControlPlane["控制平面（Control Plane）"]
+        AuthSvc["Auth Service\n(Keycloak/OIDC)"]
+        TenantSvc["Tenant Service\n(租戶 CRUD + 設定)"]
+        BillingSvc["Billing Service\n(Stripe整合)"]
+        QuotaSvc["Quota Service\n(配額執行)"]
+        NotifySvc["Notification Service\n(Email/Webhook)"]
+    end
+
+    subgraph DataPlane["資料平面（Data Plane）"]
+        SandboxOrch["Sandbox Orchestrator\n(K8s Operator)"]
+        InferenceGW["Inference Gateway\n(代理+計量+速率限制)"]
+        PolicyEngine["Policy Engine\n(動態網路政策)"]
+        StateMgr["State Manager\n(快照+同步)"]
+        BlueprintSvc["Blueprint Service\n(藍圖模板管理)"]
+    end
+
+    subgraph K8sInfra["Kubernetes 叢集（多租戶）"]
+        subgraph TenantNS_A["Namespace: tenant-aaa\n(Pro方案)"]
+            SB_A1["Sandbox Pod 1\n+ Security Layer"]
+            SB_A2["Sandbox Pod 2\n+ Security Layer"]
+        end
+        subgraph TenantNS_B["Namespace: tenant-bbb\n(Team方案)"]
+            SB_B1["Sandbox Pod 1\n+ Security Layer"]
+            SB_B2["Sandbox Pod 2\n+ Security Layer"]
+            SB_B3["Sandbox Pod 3\n+ Security Layer"]
+        end
+        subgraph SystemNS["System Namespaces"]
+            Istio["Istio\n(mTLS Service Mesh)"]
+            OPA["OPA Gatekeeper\n(Admission Control)"]
+        end
+    end
+
+    subgraph Storage["持久化儲存層"]
+        PG["PostgreSQL HA\n(Schema-per-tenant)"]
+        Redis["Redis Cluster\n(Session/Rate Limit/Cache)"]
+        S3["S3 / Object Store\n(Snapshots/Logs)"]
+        Vault["HashiCorp Vault\n(Secrets Management)"]
+        Kafka["Apache Kafka\n(Event Streaming)"]
+    end
+
+    subgraph Observability["可觀測性"]
+        Prometheus["Prometheus\n+ Thanos"]
+        Loki["Loki\n(Logs)"]
+        Tempo["Grafana Tempo\n(Tracing)"]
+        Grafana["Grafana\n(Dashboard)"]
+        AlertMgr["AlertManager\n+ PagerDuty"]
+    end
+
+    subgraph ExternalServices["外部服務"]
+        NVIDIAEndpts["NVIDIA Endpoints\n(Inference)"]
+        Stripe_Ext["Stripe\n(Payment)"]
+    end
+
+    Clients --> CDN
+    CDN --> APIGateway
+    APIGateway --> AuthSvc
+    APIGateway --> TenantSvc
+    APIGateway --> SandboxOrch
+    APIGateway --> InferenceGW
+    APIGateway --> PolicyEngine
+    APIGateway --> BlueprintSvc
+
+    TenantSvc --> BillingSvc
+    TenantSvc --> QuotaSvc
+    QuotaSvc --> Redis
+
+    SandboxOrch --> K8sInfra
+    SandboxOrch --> PG
+    SandboxOrch --> Vault
+
+    InferenceGW --> NVIDIAEndpts
+    InferenceGW --> QuotaSvc
+    InferenceGW --> Kafka
+
+    StateMgr --> S3
+    StateMgr --> PG
+    StateMgr --> Vault
+
+    PolicyEngine --> K8sInfra
+
+    BillingSvc --> Stripe_Ext
+    BillingSvc --> Kafka
+    NotifySvc --> Kafka
+
+    ControlPlane --> PG
+    DataPlane --> PG
+    DataPlane --> Redis
+
+    K8sInfra --> InferenceGW
+    SystemNS --> K8sInfra
+
+    K8sInfra --> Observability
+    ControlPlane --> Observability
+    DataPlane --> Observability
+
+    style Clients fill:#e8f4fd,stroke:#4a90d9
+    style Edge fill:#f0e8ff,stroke:#9b59b6
+    style ControlPlane fill:#d4f1d4,stroke:#27ae60
+    style DataPlane fill:#ffe0e0,stroke:#e74c3c
+    style K8sInfra fill:#ffeaa7,stroke:#e17055
+    style Storage fill:#f0f0f0,stroke:#888
+    style Observability fill:#e8fff8,stroke:#1abc9c
+    style ExternalServices fill:#fff0e8,stroke:#e67e22

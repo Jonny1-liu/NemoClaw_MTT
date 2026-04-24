@@ -1,0 +1,136 @@
+name: nemoclaw-saas
+
+services:
+
+  # ─── Infrastructure ──────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nemoclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-nemoclaw}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nemoclaw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-changeme}
+      KC_DB: dev-mem          # in-memory DB for local dev
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  # ─── Platform Services ───────────────────────────────────────
+
+  tenant:
+    build:
+      context: ./services/tenant
+      target: dev
+    env_file: .env
+    environment:
+      SERVICE_PORT: 3001
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./services/tenant/src:/app/src   # hot-reload in dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
+      interval: 10s
+      retries: 5
+
+  sandbox:
+    build:
+      context: ./services/sandbox
+      target: dev
+    env_file: .env
+    environment:
+      SERVICE_PORT: 3002
+      SANDBOX_BACKEND: ${SANDBOX_BACKEND:-mock}  # mock on Windows/local
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./services/sandbox/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3002/health || exit 1"]
+      interval: 10s
+      retries: 5
+
+  inference-gw:
+    build:
+      context: ./services/inference-gw
+      target: dev
+    env_file: .env
+    environment:
+      SERVICE_PORT: 3003
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./services/inference-gw/src:/app/src
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3003/health || exit 1"]
+      interval: 10s
+      retries: 5
+
+  billing:
+    build:
+      context: ./services/billing
+      target: dev
+    env_file: .env
+    environment:
+      SERVICE_PORT: 3004
+    ports:
+      - "3004:3004"
+    volumes:
+      - ./services/billing/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3004/health || exit 1"]
+      interval: 10s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

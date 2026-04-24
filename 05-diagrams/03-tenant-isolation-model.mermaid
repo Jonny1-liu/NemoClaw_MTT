@@ -1,0 +1,75 @@
+---
+title: 多租戶隔離模型（三層混合）
+---
+graph TB
+    subgraph EnterpriseModel["Enterprise 方案：Silo 模型（專屬叢集）"]
+        direction LR
+        subgraph ClusterA["K8s Cluster A"]
+            NsA["Namespace:\ntenant-enterprise-1"]
+            PodsA["Sandbox Pods\n(Dedicated)"]
+        end
+        subgraph ClusterB["K8s Cluster B"]
+            NsB["Namespace:\ntenant-enterprise-2"]
+            PodsB["Sandbox Pods\n(Dedicated)"]
+        end
+        ClusterA ~~~ ClusterB
+    end
+
+    subgraph PoolModel["Pro/Team 方案：Pool 模型（共享叢集，Namespace 隔離）"]
+        direction LR
+        subgraph SharedCluster["Shared K8s Cluster"]
+            subgraph NsC["Namespace: tenant-pro-1\n(ResourceQuota + NetworkPolicy)"]
+                PodsC["Sandbox Pods\n(Isolated)"]
+            end
+            subgraph NsD["Namespace: tenant-team-1\n(ResourceQuota + NetworkPolicy)"]
+                PodsD["Sandbox Pods\n(Isolated)"]
+            end
+            NetPol["NetworkPolicy:\nDefault Deny-All\n+ Whitelist per Tenant"]
+        end
+    end
+
+    subgraph SharedModel["Free 方案：Shared 模型（共享資源池，邏輯隔離）"]
+        direction LR
+        subgraph SharedPool["Shared Sandbox Pool"]
+            PodsFree1["Sandbox Pod\n(tenant-free-1)"]
+            PodsFree2["Sandbox Pod\n(tenant-free-2)"]
+            PodsFree3["Sandbox Pod\n(tenant-free-3)"]
+        end
+        SleepPolicy["Idle 30分鐘\n自動休眠"]
+    end
+
+    subgraph DataIsolation["資料隔離層（所有方案）"]
+        direction LR
+        subgraph PG_Isolation["PostgreSQL"]
+            SchemaA["Schema: tenant_aaa\n(sandboxes, usage...)"]
+            SchemaB["Schema: tenant_bbb\n(sandboxes, usage...)"]
+        end
+        subgraph S3_Isolation["S3 物件儲存"]
+            PrefixA["tenants/aaa/\n(snapshots, logs)"]
+            PrefixB["tenants/bbb/\n(snapshots, logs)"]
+        end
+        subgraph Vault_Isolation["HashiCorp Vault"]
+            PathA["secret/tenants/aaa/\n(API keys, tokens)"]
+            PathB["secret/tenants/bbb/\n(API keys, tokens)"]
+        end
+    end
+
+    subgraph SecurityLayers["沙箱安全層（繼承自 NemoClaw）"]
+        direction LR
+        L4["應用層\nSSRF 防禦\n憑證防洩漏"]
+        L3["容器層\nCapability Drops\n只讀 Rootfs"]
+        L2["核心層\nLandlock\nseccomp"]
+        L1["網路層\nNetworkPolicy\n出口政策"]
+        L1 --> L2 --> L3 --> L4
+    end
+
+    EnterpriseModel --> DataIsolation
+    PoolModel --> DataIsolation
+    SharedModel --> DataIsolation
+    DataIsolation --> SecurityLayers
+
+    style EnterpriseModel fill:#ffe0e0,stroke:#e74c3c
+    style PoolModel fill:#d4f1d4,stroke:#27ae60
+    style SharedModel fill:#ffeaa7,stroke:#e17055
+    style DataIsolation fill:#e8f4fd,stroke:#4a90d9
+    style SecurityLayers fill:#f0e8ff,stroke:#9b59b6

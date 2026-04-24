@@ -1,0 +1,52 @@
+---
+title: SaaS 平台請求流程（推理請求）
+---
+sequenceDiagram
+    participant User as 用戶 (CLI/Web)
+    participant GW as API Gateway
+    participant Auth as Auth Service
+    participant QS as Quota Service
+    participant IG as Inference Gateway
+    participant Redis as Redis Cluster
+    participant Kafka as Kafka
+    participant NVIDIA as NVIDIA Endpoints
+    participant UC as Usage Consumer
+    participant PG as PostgreSQL
+
+    User->>GW: POST /api/v1/inference/chat\nAuthorization: Bearer JWT
+
+    GW->>Auth: 驗證 JWT（公鑰驗證）
+    Auth-->>GW: tenant_id, plan, permissions
+
+    GW->>QS: 檢查配額\n(tenant_id, estimated_tokens)
+    QS->>Redis: GET tenant:{id}:quota:tokens:used
+    Redis-->>QS: 450000 (已使用)
+    QS->>Redis: GET tenant:{id}:quota:tokens:limit
+    Redis-->>QS: 1000000 (上限)
+
+    alt 配額充足
+        QS-->>GW: ✅ 允許（剩餘 550000）
+
+        GW->>IG: 轉發推理請求\n(注入 tenant 上下文)
+
+        IG->>Redis: 速率限制檢查\n(Sliding Window)
+        Redis-->>IG: ✅ 允許 (59 RPM 剩餘)
+
+        IG->>NVIDIA: POST /v1/chat/completions\n(使用平台 API Key)
+        NVIDIA-->>IG: 推理回應\n{input: 150, output: 450 tokens}
+
+        IG->>Kafka: 發布 usage.inference.completed\n{tenant_id, input:150, output:450}
+
+        IG-->>GW: 回應 + Token 使用量
+        GW-->>User: 200 OK + 推理結果
+
+        Note over Kafka,PG: 非同步處理（不影響主流程）
+        Kafka->>UC: 消費 usage 事件
+        UC->>Redis: INCRBY tenant:{id}:tokens:used 600
+        UC->>PG: INSERT inference_usage\n(tenant_id, sandbox_id, tokens, latency)
+
+    else 配額不足
+        QS-->>GW: ❌ 配額耗盡
+
+        GW-->>User: 402 Payment Required\n{"error": "TOKEN_QUOTA_EXCEEDED",\n"upgrade_url": "..."}
+    end

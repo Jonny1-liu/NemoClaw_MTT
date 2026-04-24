@@ -1,0 +1,58 @@
+---
+title: NemoClaw 現有架構（單機版）
+---
+graph TB
+    subgraph UserMachine["使用者機器（Host Machine）"]
+        subgraph CLI["NemoClaw CLI（Node.js/TypeScript）"]
+            onboard["onboard\n引導精靈"]
+            credentials["credentials\n本機憑證"]
+            inference["inference\n推理路由"]
+            policies["policies\n網路政策"]
+            runner["runner\n沙箱管理"]
+        end
+
+        subgraph LocalState["本機狀態（~/.nemoclaw/）"]
+            config["config.json\n用戶設定"]
+            snapshots["snapshots/\n代理快照"]
+            blueprints["blueprints/\n藍圖設定"]
+        end
+
+        subgraph Docker["Docker Runtime"]
+            subgraph OpenShellGW["OpenShell Gateway Container"]
+                subgraph K3s["k3s（Embedded Kubernetes）"]
+                    subgraph SandboxPod["Sandbox Pod"]
+                        OpenClaw["OpenClaw Agent\n(always-on AI)"]
+                        NemoPlugin["NemoClaw Plugin\n(TypeScript)"]
+                        subgraph Security["安全層"]
+                            Landlock["Landlock\n(FS Access Control)"]
+                            seccomp["seccomp\n(syscall filter)"]
+                            netns["Network Namespace\n(net isolation)"]
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    subgraph ExternalServices["外部服務"]
+        NVIDIAEndpts["NVIDIA Endpoints\nNemotron-3-Super-120B"]
+        Ollama["Ollama\n(local GPU, optional)"]
+    end
+
+    CLI --> LocalState
+    CLI --> OpenShellGW
+    runner --> K3s
+    OpenClaw --> NemoPlugin
+    NemoPlugin --> inference
+    inference --> NVIDIAEndpts
+    inference -.-> Ollama
+
+    style UserMachine fill:#f0f0f0,stroke:#888
+    style Docker fill:#e8f4fd,stroke:#4a90d9
+    style OpenShellGW fill:#d6e8f7,stroke:#4a90d9
+    style K3s fill:#c4dcf0,stroke:#4a90d9
+    style SandboxPod fill:#b0d0e8,stroke:#4a90d9
+    style Security fill:#ffeaa7,stroke:#e17055
+    style CLI fill:#d4f1d4,stroke:#27ae60
+    style LocalState fill:#ffeaa7,stroke:#e17055
+    style ExternalServices fill:#ffe0e0,stroke:#e74c3c

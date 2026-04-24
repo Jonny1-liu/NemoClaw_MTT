@@ -1,0 +1,37 @@
+---
+title: NemoClaw SaaS 遷移路線圖
+---
+gantt
+    dateFormat  YYYY-MM-DD
+    title       NemoClaw 多租戶 SaaS 遷移時程（2026）
+    axisFormat  %Y-%m
+
+    section Phase 1：基礎建設
+    AWS 帳號 + IaC 基礎設施       :p1a, 2026-04-16, 14d
+    Auth Service (Keycloak)       :p1b, after p1a, 14d
+    Tenant Service + API Gateway  :p1c, after p1b, 14d
+    CLI v2 骨架 + Sandbox API初版 :p1d, after p1c, 21d
+    基礎可觀測性堆疊               :p1e, after p1d, 7d
+    Phase 1 整合測試 + 私測        :milestone, p1m, 2026-07-16, 0d
+
+    section Phase 2：多租戶核心
+    PostgreSQL Schema-per-Tenant   :p2a, 2026-07-17, 21d
+    K8s 多租戶隔離 (Namespace)     :p2b, 2026-07-17, 21d
+    推理 Gateway (計量+配額)        :p2c, after p2a, 14d
+    狀態管理 + 快照系統             :p2d, after p2b, 14d
+    動態網路政策引擎                :p2e, after p2c, 14d
+    負載測試 + 滲透測試             :p2f, after p2d, 14d
+    Phase 2 50租戶測試              :milestone, p2m, 2026-10-16, 0d
+
+    section Phase 3：SaaS 上線
+    Web Console (Next.js)          :p3a, 2026-10-17, 21d
+    計費系統 (Stripe整合)           :p3b, 2026-10-17, 21d
+    公開 Beta 準備 + 文件            :p3c, after p3a, 14d
+    安全合規 (SOC2 Type I)          :p3d, 2026-10-17, 42d
+    GA 軟上線                       :p3e, after p3c, 7d
+    正式 GA Launch                  :milestone, p3m, 2027-01-16, 0d
+
+    section Post-Launch
+    SSO + SCIM (Enterprise)        :p4a, 2027-01-17, 30d
+    多區域 (eu-west-1)              :p4b, after p4a, 30d
+    GPU 本機推理選項                 :p4c, after p4b, 30d
