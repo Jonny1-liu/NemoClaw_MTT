@@ -244,8 +244,8 @@ metadata:
 """
 
     def _resource_quota_yaml(self, namespace: str, resources) -> str:
-        cpu     = getattr(resources, "cpu",    "2")
-        memory  = getattr(resources, "memory", "4Gi")
+        # ResourceQuota = 整個 namespace 的總量上限（不是單個 Pod 的限制）
+        # Pro 方案：最多 5 個 Sandbox，每個 2 CPU / 4Gi → 總量 10 CPU / 20Gi
         return f"""apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -253,10 +253,10 @@ metadata:
   namespace: {namespace}
 spec:
   hard:
-    requests.cpu: "{cpu}"
-    requests.memory: "{memory}"
-    limits.cpu: "{cpu}"
-    limits.memory: "{memory}"
+    requests.cpu: "2500m"
+    requests.memory: "2560Mi"
+    limits.cpu: "10"
+    limits.memory: "20Gi"
     pods: "10"
     persistentvolumeclaims: "10"
 """
