@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.7",
     "structlog>=24.2",
     "httpx>=0.27",
+    "python-dotenv>=1.0",
     "shared",
     # LLM Provider SDKs（未使用的 provider 不會被 import）
     "openai>=1.30",

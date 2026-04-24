@@ -1,56 +1,62 @@
 """Inference Gateway — 多供應商 LLM 代理、計量、速率限制"""
-import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parents[4] / ".env", override=False)
+
+import os
 import structlog
 import uvicorn
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
+from inference_gw.config import settings
 from inference_gw.router import ProviderRouter
+from inference_gw.routes.chat import router as chat_router, set_provider_router
+from shared.types import HealthResponse
 
 log = structlog.get_logger()
 
-router: ProviderRouter
-
 
 def _build_router() -> ProviderRouter:
-    """依環境變數中已設定的 API Key 啟用對應供應商"""
+    """依 .env 中已設定的 API Key 啟用對應供應商"""
     from inference_gw.providers.base import LLMProvider
     providers: dict[str, LLMProvider] = {}
 
-    if key := os.getenv("NVIDIA_API_KEY"):
+    if settings.nvidia_api_key:
         from inference_gw.providers.nvidia import NVIDIAAdapter
-        providers["nvidia"] = NVIDIAAdapter(api_key=key)
+        providers["nvidia"] = NVIDIAAdapter(api_key=settings.nvidia_api_key)
         log.info("inference_gw.provider_enabled", provider="nvidia")
 
-    if key := os.getenv("OPENAI_API_KEY"):
+    if settings.openai_api_key:
         from inference_gw.providers.openai import OpenAIAdapter
-        providers["openai"] = OpenAIAdapter(api_key=key)
+        providers["openai"] = OpenAIAdapter(api_key=settings.openai_api_key)
         log.info("inference_gw.provider_enabled", provider="openai")
 
-    if key := os.getenv("ANTHROPIC_API_KEY"):
+    if settings.anthropic_api_key:
         from inference_gw.providers.anthropic import AnthropicAdapter
-        providers["anthropic"] = AnthropicAdapter(api_key=key)
+        providers["anthropic"] = AnthropicAdapter(api_key=settings.anthropic_api_key)
         log.info("inference_gw.provider_enabled", provider="anthropic")
 
-    if url := os.getenv("OLLAMA_BASE_URL"):
+    if settings.ollama_base_url:
         from inference_gw.providers.ollama import OllamaAdapter
-        providers["ollama"] = OllamaAdapter(base_url=url)
+        providers["ollama"] = OllamaAdapter(base_url=settings.ollama_base_url)
         log.info("inference_gw.provider_enabled", provider="ollama")
 
     if not providers:
-        log.warning("inference_gw.no_providers", hint="Set at least one *_API_KEY in .env")
+        log.warning("inference_gw.no_providers",
+                    hint="Set NVIDIA_API_KEY or other provider keys in .env")
 
     return ProviderRouter(providers)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global router
-    router = _build_router()
+    provider_router = _build_router()
+    set_provider_router(provider_router)
     log.info("inference_gw.ready",
-             providers=list(router._providers.keys()))
+             providers=list(provider_router._providers.keys()))
     yield
     log.info("inference_gw.stopping")
 
@@ -62,10 +68,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Health
-from fastapi import APIRouter
-from shared.types import HealthResponse
-
 health_router = APIRouter()
 
 
@@ -75,12 +77,9 @@ async def health() -> HealthResponse:
 
 
 app.include_router(health_router)
-
-# TODO: 加入推理 route
-# from inference_gw.routes.chat import router as chat_router
-# app.include_router(chat_router, prefix="/v1")
+app.include_router(chat_router)   # /v1/chat/completions
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("SERVICE_PORT", "3003"))
-    uvicorn.run("inference_gw.main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("inference_gw.main:app", host="0.0.0.0",
+                port=settings.service_port, reload=True)
