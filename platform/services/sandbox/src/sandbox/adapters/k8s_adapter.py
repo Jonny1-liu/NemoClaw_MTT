@@ -20,12 +20,21 @@ K8sAdapter — 透過 k3s（OpenShell 容器內部）實現真正的多租戶隔
 """
 import asyncio
 import json
+import re
 import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
 import structlog
+
+# K8s 名稱只能有小寫英數字與連字號
+_K8S_NAME_RE = re.compile(r"[^a-z0-9-]")
+
+
+def _sanitize(s: str) -> str:
+    """將字串轉為 K8s 合法名稱格式"""
+    return _K8S_NAME_RE.sub("-", s.lower())
 
 from sandbox.ports.sandbox_backend import (
     LogLine,
