@@ -161,7 +161,7 @@ class K8sAdapter(SandboxBackend):
         """使用 openshell sandbox delete 刪除 sandbox"""
         crd_name = handle.external_id
         log.info("k8s.destroy", crd_name=crd_name)
-        await self._run_host(["openshell", "sandbox", "delete", crd_name, "--yes"])
+        await self._run_host(["openshell", "sandbox", "delete", crd_name])
         log.info("k8s.destroyed", crd_name=crd_name)
 
     # ─── 狀態查詢 ──────────────────────────────────────────────
