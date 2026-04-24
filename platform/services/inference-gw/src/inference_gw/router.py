@@ -17,10 +17,16 @@ log = structlog.get_logger()
 
 # 模型目錄：邏輯模型名 → 預設供應商
 MODEL_CATALOG: dict[str, str] = {
-    # NVIDIA
+    # NVIDIA Endpoints 上的模型（可透過 NVIDIA API Key 存取）
     "nemotron-super":   "nvidia",
     "llama-3.1-70b":    "nvidia",
     "llama-3.1-8b":     "nvidia",
+    "llama-3.3-70b":    "nvidia",
+    "deepseek-v3":      "nvidia",
+    "deepseek-coder":   "nvidia",
+    "gemma-3-27b":      "nvidia",
+    "gemma-3-12b":      "nvidia",
+    "gemma-3-4b":       "nvidia",
     # OpenAI
     "gpt-4o":           "openai",
     "gpt-4o-mini":      "openai",
@@ -30,9 +36,6 @@ MODEL_CATALOG: dict[str, str] = {
     "claude-opus-4":    "anthropic",
     "claude-sonnet-4":  "anthropic",
     "claude-haiku-4":   "anthropic",
-    # Google（TODO: 加入 google adapter）
-    "gemini-2.5-pro":   "google",
-    "gemini-2.0-flash": "google",
     # Ollama（本機）
     "llama3.2:3b":      "ollama",
     "qwen2.5:7b":       "ollama",

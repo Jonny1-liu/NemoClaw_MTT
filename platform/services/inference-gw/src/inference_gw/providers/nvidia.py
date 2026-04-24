@@ -14,15 +14,28 @@ from inference_gw.providers.base import (
 log = structlog.get_logger()
 
 _MODEL_MAP: dict[str, str] = {
-    "nemotron-super":   "nvidia/nemotron-3-super-120b-a12b",
-    "llama-3.1-70b":    "nvidia/llama-3.1-70b-instruct",
-    "llama-3.1-8b":     "nvidia/llama-3.1-8b-instruct",
+    # NVIDIA 自有模型
+    "nemotron-super":        "nvidia/nemotron-3-super-120b-a12b",
+    # Meta Llama 系列
+    "llama-3.1-70b":         "meta/llama-3.1-70b-instruct",
+    "llama-3.1-8b":          "meta/llama-3.1-8b-instruct",
+    "llama-3.3-70b":         "meta/llama-3.3-70b-instruct",
+    # DeepSeek
+    "deepseek-v3":           "deepseek-ai/deepseek-v3.2",
+    "deepseek-coder":        "deepseek-ai/deepseek-coder-6.7b-instruct",
+    # Google
+    "gemma-3-27b":           "google/gemma-3-27b-it",
+    "gemma-3-12b":           "google/gemma-3-12b-it",
+    "gemma-3-4b":            "google/gemma-3-4b-it",
 }
 
 _PRICING: dict[str, TokenCost] = {
     "nemotron-super":  TokenCost(input_per_1k=0.008, output_per_1k=0.024),
     "llama-3.1-70b":   TokenCost(input_per_1k=0.003, output_per_1k=0.006),
     "llama-3.1-8b":    TokenCost(input_per_1k=0.001, output_per_1k=0.002),
+    "llama-3.3-70b":   TokenCost(input_per_1k=0.003, output_per_1k=0.006),
+    "deepseek-v3":     TokenCost(input_per_1k=0.002, output_per_1k=0.004),
+    "gemma-3-27b":     TokenCost(input_per_1k=0.002, output_per_1k=0.004),
 }
 
 _BASE_URL = "https://integrate.api.nvidia.com/v1"
