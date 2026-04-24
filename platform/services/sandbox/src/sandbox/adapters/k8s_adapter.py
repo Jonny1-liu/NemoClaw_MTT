@@ -319,6 +319,13 @@ spec:
         fi
         touch /workspace-pvc/.workspace-initialized
       fi
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
     securityContext:
       runAsUser: 0
     volumeMounts:
@@ -329,6 +336,13 @@ spec:
     image: {_SANDBOX_IMAGE}
     imagePullPolicy: IfNotPresent
     command: ["/opt/openshell/bin/openshell-sandbox"]
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
     env:
     - name: OPENSHELL_SANDBOX_ID
       value: "{sandbox_id}"
