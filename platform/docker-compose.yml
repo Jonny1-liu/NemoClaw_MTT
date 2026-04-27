@@ -98,6 +98,7 @@ services:
       retries: 5
 
   inference-gw:
+    profiles: ["with-inference"]   # 需要 LLM 時才啟動：docker-compose --profile with-inference up
     build:
       context: ./services/inference-gw
       target: dev
