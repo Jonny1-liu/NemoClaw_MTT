@@ -90,7 +90,8 @@ check_postgres() {
 COMPOSE_PROFILES=()
 if check_postgres; then
   echo "  ✅ PostgreSQL running at ${POSTGRES_HOST}:${POSTGRES_PORT} (native)"
-  export POSTGRES_HOST="${POSTGRES_HOST}"
+  # Docker 容器內不能用 localhost 連到主機，改用 host.docker.internal
+  export POSTGRES_HOST="host.docker.internal"
 else
   echo "  ⚠️  PostgreSQL not found → starting container..."
   COMPOSE_PROFILES+=("with-db")
