@@ -51,7 +51,8 @@ services:
 
   tenant:
     build:
-      context: ./services/tenant
+      context: .                          # platform/ 根目錄（含 packages/shared）
+      dockerfile: services/tenant/Dockerfile
       target: dev
     env_file: .env
     environment:
@@ -60,8 +61,8 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./services/tenant/src:/app/src
-      - ../logs/tenant:/app/logs/tenant
+      - ./services/tenant/src:/workspace/services/tenant/src
+      - ../logs/tenant:/workspace/services/tenant/logs/tenant
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -74,7 +75,8 @@ services:
 
   sandbox:
     build:
-      context: ./services/sandbox
+      context: .
+      dockerfile: services/sandbox/Dockerfile
       target: dev
     env_file: .env
     environment:
@@ -84,8 +86,8 @@ services:
     ports:
       - "3002:3002"
     volumes:
-      - ./services/sandbox/src:/app/src
-      - ../logs/sandbox:/app/logs/sandbox
+      - ./services/sandbox/src:/workspace/services/sandbox/src
+      - ../logs/sandbox:/workspace/services/sandbox/logs/sandbox
       - /var/run/docker.sock:/var/run/docker.sock   # K8s Adapter 需要存取 Docker
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -98,9 +100,10 @@ services:
       retries: 5
 
   inference-gw:
-    profiles: ["with-inference"]   # 需要 LLM 時才啟動：docker-compose --profile with-inference up
+    profiles: ["with-inference"]
     build:
-      context: ./services/inference-gw
+      context: .
+      dockerfile: services/inference-gw/Dockerfile
       target: dev
     env_file: .env
     environment:
@@ -108,8 +111,8 @@ services:
     ports:
       - "3003:3003"
     volumes:
-      - ./services/inference-gw/src:/app/src
-      - ../logs/inference-gw:/app/logs/inference-gw
+      - ./services/inference-gw/src:/workspace/services/inference-gw/src
+      - ../logs/inference-gw:/workspace/services/inference-gw/logs/inference-gw
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
