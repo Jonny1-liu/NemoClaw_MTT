@@ -7,6 +7,12 @@ from typing import AsyncIterator
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parents[4] / ".env", override=False)
 
+from shared.logging_config import setup_logging
+setup_logging(
+    "sandbox",
+    logs_root=Path(__file__).parents[4] / "logs",
+)
+
 import structlog
 import uvicorn
 from fastapi import APIRouter, FastAPI
@@ -76,6 +82,9 @@ async def health() -> HealthResponse:
 
 app.include_router(health_router)
 app.include_router(sandboxes_router)
+
+from sandbox.routes.compatibility import router as compat_router
+app.include_router(compat_router)
 
 
 if __name__ == "__main__":

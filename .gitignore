@@ -33,7 +33,7 @@ Thumbs.db
 
 # Logs
 *.log
-logs/
+platform/logs/
 
 # Test
 .pytest_cache/

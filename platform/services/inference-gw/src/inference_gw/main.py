@@ -6,6 +6,12 @@ from typing import AsyncIterator
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parents[4] / ".env", override=False)
 
+from shared.logging_config import setup_logging
+setup_logging(
+    "inference-gw",
+    logs_root=Path(__file__).parents[4] / "logs",
+)
+
 import os
 import structlog
 import uvicorn

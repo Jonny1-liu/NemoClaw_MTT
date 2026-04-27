@@ -3,10 +3,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
 
-# .env 必須在所有模組載入前讀入 os.environ
-# 讓 AUTH_MODE 等環境變數對 shared.auth 可見
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parents[4] / ".env", override=False)
+
+# 日誌設定必須在其他模組載入前完成
+from shared.logging_config import setup_logging
+setup_logging(
+    "tenant",
+    logs_root=Path(__file__).parents[4] / "logs",
+)
 
 import structlog
 import uvicorn
