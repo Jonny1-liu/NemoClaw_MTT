@@ -48,10 +48,22 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# 載入 .env
-set -a
-source "$ENV_FILE"
-set +a
+# 安全讀取 .env（不用 source，避免密碼特殊字元造成 bash 語法錯誤）
+_read_env() {
+  local key="$1"
+  local default="$2"
+  local val
+  # grep 取得該行，cut 取 = 後的值，sed 移除首尾引號
+  val=$(grep -E "^${key}=" "$ENV_FILE" 2>/dev/null \
+        | head -1 \
+        | cut -d'=' -f2- \
+        | sed "s/^['\"]//; s/['\"]$//")
+  echo "${val:-$default}"
+}
+
+POSTGRES_HOST=$(_read_env "POSTGRES_HOST" "localhost")
+POSTGRES_PORT=$(_read_env "POSTGRES_PORT" "5432")
+POSTGRES_USER=$(_read_env "POSTGRES_USER" "nemoclaw")
 
 # ─── 偵測 PostgreSQL ──────────────────────────────────────────
 
