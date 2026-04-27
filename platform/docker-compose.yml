@@ -2,14 +2,17 @@ name: nemoclaw-saas
 
 services:
 
-  # ─── Infrastructure ──────────────────────────────────────────
-
+  # ─── PostgreSQL（僅在沒有 native PostgreSQL 時啟動）──────────
+  # 使用方式：
+  #   有 native PostgreSQL（Ubuntu）：docker-compose up        （跳過 db profile）
+  #   無 native PostgreSQL（Windows）：docker-compose --profile with-db up
   postgres:
     image: postgres:16-alpine
+    profiles: ["with-db"]
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-nemoclaw}
+      POSTGRES_USER:     ${POSTGRES_USER:-nemoclaw}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-nemoclaw}
+      POSTGRES_DB:       ${POSTGRES_DB:-nemoclaw}
     ports:
       - "5432:5432"
     volumes:
@@ -20,33 +23,29 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:24.0
-    command: start-dev
+  # ─── DB 連線等待器（連接到任何位置的 PostgreSQL）──────────────
+  # 無論 PostgreSQL 在哪裡（container 或 native），都等它就緒
+  postgres-ready:
+    image: postgres:16-alpine
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-changeme}
-      KC_DB: dev-mem          # in-memory DB for local dev
-    ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 20
-      start_period: 30s
+      PGHOST:     ${POSTGRES_HOST:-host.docker.internal}
+      PGPORT:     ${POSTGRES_PORT:-5432}
+      PGUSER:     ${POSTGRES_USER:-nemoclaw}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    command: >
+      sh -c "
+        echo 'Waiting for PostgreSQL at ${POSTGRES_HOST:-host.docker.internal}:${POSTGRES_PORT:-5432}...';
+        until pg_isready -h ${POSTGRES_HOST:-host.docker.internal} -p ${POSTGRES_PORT:-5432} -U ${POSTGRES_USER:-nemoclaw}; do
+          sleep 2;
+        done;
+        echo 'PostgreSQL is ready!'
+      "
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux 需要此行；Windows/Mac 已內建
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false   # postgres 沒啟動時不強制（Ubuntu native 模式）
 
   # ─── Platform Services ───────────────────────────────────────
 
@@ -56,16 +55,18 @@ services:
       target: dev
     env_file: .env
     environment:
-      SERVICE_PORT: 3001
+      SERVICE_PORT:   3001
+      POSTGRES_HOST:  ${POSTGRES_HOST:-host.docker.internal}
     ports:
       - "3001:3001"
     volumes:
-      - ./services/tenant/src:/app/src   # hot-reload in dev
+      - ./services/tenant/src:/app/src
+      - ../logs/tenant:/app/logs/tenant
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      postgres-ready:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
       interval: 10s
@@ -77,17 +78,20 @@ services:
       target: dev
     env_file: .env
     environment:
-      SERVICE_PORT: 3002
-      SANDBOX_BACKEND: ${SANDBOX_BACKEND:-mock}  # mock on Windows/local
+      SERVICE_PORT:    3002
+      POSTGRES_HOST:   ${POSTGRES_HOST:-host.docker.internal}
+      SANDBOX_BACKEND: ${SANDBOX_BACKEND:-mock}
     ports:
       - "3002:3002"
     volumes:
       - ./services/sandbox/src:/app/src
+      - ../logs/sandbox:/app/logs/sandbox
+      - /var/run/docker.sock:/var/run/docker.sock   # K8s Adapter 需要存取 Docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      postgres-ready:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3002/health || exit 1"]
       interval: 10s
@@ -104,33 +108,13 @@ services:
       - "3003:3003"
     volumes:
       - ./services/inference-gw/src:/app/src
-    depends_on:
-      redis:
-        condition: service_healthy
+      - ../logs/inference-gw:/app/logs/inference-gw
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:3003/health || exit 1"]
       interval: 10s
       retries: 5
 
-  billing:
-    build:
-      context: ./services/billing
-      target: dev
-    env_file: .env
-    environment:
-      SERVICE_PORT: 3004
-    ports:
-      - "3004:3004"
-    volumes:
-      - ./services/billing/src:/app/src
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3004/health || exit 1"]
-      interval: 10s
-      retries: 5
-
 volumes:
   postgres_data:
-  redis_data:
