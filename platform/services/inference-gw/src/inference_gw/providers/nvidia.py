@@ -85,8 +85,13 @@ class NVIDIAAdapter(LLMProvider):
         )
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[CompletionDelta]:
-        # TODO: 實作 SSE 串流
-        raise NotImplementedError("NVIDIA streaming — TODO")
+        """NVIDIA 目前用 complete() 包裝成 streaming 格式"""
+        resp = await self.complete(request)
+        yield CompletionDelta(
+            delta=resp.message.content,
+            finish_reason=resp.finish_reason,
+            usage=resp.usage,
+        )
 
     async def validate_config(self) -> bool:
         try:

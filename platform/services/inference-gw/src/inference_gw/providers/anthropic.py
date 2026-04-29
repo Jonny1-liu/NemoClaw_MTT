@@ -64,7 +64,8 @@ class AnthropicAdapter(LLMProvider):
         )
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[CompletionDelta]:
-        raise NotImplementedError("Anthropic streaming — TODO")
+        resp = await self.complete(request)
+        yield CompletionDelta(delta=resp.message.content, finish_reason=resp.finish_reason, usage=resp.usage)
 
     async def validate_config(self) -> bool:
         try:
