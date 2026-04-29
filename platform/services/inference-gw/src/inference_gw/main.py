@@ -74,6 +74,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 記錄所有進入的請求（診斷用，確認 OpenClaw 是否有到達 GW）
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+class LogAllRequestsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        log.info("gw.incoming_request",
+                 method=request.method,
+                 path=str(request.url.path),
+                 client=str(request.client),
+                 auth=request.headers.get("authorization", "none")[:20])
+        response = await call_next(request)
+        log.info("gw.response_sent", status=response.status_code, path=str(request.url.path))
+        return response
+
+app.add_middleware(LogAllRequestsMiddleware)
+
 health_router = APIRouter()
 
 
