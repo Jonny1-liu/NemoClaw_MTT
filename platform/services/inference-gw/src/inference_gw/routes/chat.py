@@ -4,8 +4,9 @@
 此端點供沙箱內的 OpenClaw 和外部客戶端呼叫。
 依 JWT 的 tenant_id 執行配額檢查，路由至正確的 LLM 供應商。
 """
+import json
 import time
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -192,7 +193,6 @@ async def _stream_response(
                     "finish_reason": delta.finish_reason,
                 }],
             }
-            import json
             yield f"data: {json.dumps(data)}\n\n"
         yield "data: [DONE]\n\n"
     except Exception as e:
