@@ -182,18 +182,46 @@ async def chat_completions(
 async def _stream_response(
     provider, request: CompletionRequest, tenant_id: str
 ) -> AsyncIterator[str]:
-    """Server-Sent Events 串流格式"""
+    """
+    Server-Sent Events 串流格式（OpenAI 標準格式）
+
+    正確的 OpenAI streaming 格式：
+      Chunk 1: {"delta": {"role": "assistant", "content": ""}, "finish_reason": null}
+      Chunk N: {"delta": {"content": "..."}, "finish_reason": null}
+      Final:   {"delta": {}, "finish_reason": "stop|tool_calls"}
+      [DONE]
+
+    finish_reason 必須在「空 delta 的獨立最後一個 chunk」，
+    不能與 content 同在一個 chunk，否則 OpenClaw 無法正確識別 tool calls。
+    """
+    import time
+    import uuid
+
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
+    created  = int(time.time())
+    model    = request.model
+
+    def _chunk(delta_data: dict, finish_reason: str | None) -> str:
+        return f"data: {json.dumps({'id': chunk_id, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': delta_data, 'finish_reason': finish_reason}]})}\n\n"
+
     try:
+        # Chunk 1：角色宣告
+        yield _chunk({"role": "assistant", "content": ""}, None)
+
+        full_content  = ""
+        finish_reason = "stop"
+
         async for delta in provider.stream(request):
-            data = {
-                "object": "chat.completion.chunk",
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": delta.delta},
-                    "finish_reason": delta.finish_reason,
-                }],
-            }
-            yield f"data: {json.dumps(data)}\n\n"
+            if delta.delta:
+                full_content += delta.delta
+                # 內容 chunk：finish_reason 為 null
+                yield _chunk({"content": delta.delta}, None)
+            if delta.finish_reason:
+                finish_reason = delta.finish_reason
+
+        # 最後一個 chunk：空 delta + finish_reason
+        yield _chunk({}, finish_reason)
         yield "data: [DONE]\n\n"
+
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
