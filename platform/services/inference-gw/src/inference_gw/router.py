@@ -18,15 +18,21 @@ log = structlog.get_logger()
 # 模型目錄：邏輯模型名 → 預設供應商
 MODEL_CATALOG: dict[str, str] = {
     # NVIDIA Endpoints 上的模型（可透過 NVIDIA API Key 存取）
-    "nemotron-super":   "nvidia",
-    "llama-3.1-70b":    "nvidia",
-    "llama-3.1-8b":     "nvidia",
-    "llama-3.3-70b":    "nvidia",
-    "deepseek-v3":      "nvidia",
-    "deepseek-coder":   "nvidia",
-    "gemma-3-27b":      "nvidia",
-    "gemma-3-12b":      "nvidia",
-    "gemma-3-4b":       "nvidia",
+    "nemotron-super":                   "nvidia",
+    "llama-3.1-70b":                    "nvidia",
+    "llama-3.1-8b":                     "nvidia",
+    "llama-3.3-70b":                    "nvidia",
+    "deepseek-v3":                      "nvidia",
+    "deepseek-coder":                   "nvidia",
+    "gemma-3-27b":                      "nvidia",
+    "gemma-3-12b":                      "nvidia",
+    "gemma-3-4b":                       "nvidia",
+    # 完整模型名稱（OpenClaw 傳來的格式）
+    "meta/llama-3.1-8b-instruct":       "nvidia",
+    "meta/llama-3.1-70b-instruct":      "nvidia",
+    "meta/llama-3.3-70b-instruct":      "nvidia",
+    "nvidia/nemotron-3-super-120b-a12b":"nvidia",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1": "nvidia",
     # OpenAI
     "gpt-4o":           "openai",
     "gpt-4o-mini":      "openai",

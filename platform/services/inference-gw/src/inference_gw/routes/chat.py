@@ -18,6 +18,22 @@ log = structlog.get_logger()
 
 router = APIRouter(prefix="/v1", tags=["inference"])
 
+
+@router.get("/models", summary="列出可用模型")
+async def list_models(
+    user: TokenPayload = Depends(require_auth),
+):
+    """OpenAI-compatible /v1/models endpoint"""
+    from inference_gw.router import MODEL_CATALOG
+    models = []
+    for model_id in MODEL_CATALOG:
+        models.append({
+            "id": model_id,
+            "object": "model",
+            "owned_by": MODEL_CATALOG.get(model_id, "unknown"),
+        })
+    return {"object": "list", "data": models}
+
 # router 由 main.py 的 lifespan 初始化後設定
 _provider_router = None
 
