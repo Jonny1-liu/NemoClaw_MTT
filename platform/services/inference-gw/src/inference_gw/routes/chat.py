@@ -45,26 +45,28 @@ def set_provider_router(r) -> None:
 
 # ─── Request / Response 格式（OpenAI-compatible）──────────────
 
+from typing import Any
+
 from pydantic import BaseModel
 
 
 class ChatMessage(BaseModel):
     role:         str
-    content:      str | None = None   # tool 訊息可能是 None
+    content:      Any = None   # str | list | None（OpenAI 多模態格式）
     tool_call_id: str | None = None
     name:         str | None = None
 
-    model_config = {"extra": "allow"}   # 允許額外欄位（OpenAI API 相容）
+    model_config = {"extra": "allow"}
 
 
 class ChatCompletionRequest(BaseModel):
     model:       str
     messages:    list[ChatMessage]
-    temperature: float  = 0.7
-    max_tokens:  int    = 1024
-    stream:      bool   = False
+    temperature: float = 0.7
+    max_tokens:  int   = 1024
+    stream:      bool  = False
 
-    model_config = {"extra": "allow"}   # 允許 tool_choice 等額外欄位
+    model_config = {"extra": "allow"}
 
 
 # ─── 端點 ─────────────────────────────────────────────────────
@@ -90,7 +92,16 @@ async def chat_completions(
         try:
             role = MessageRole(m.role)
             if role in supported_roles:
-                valid_messages.append(Message(role=role, content=m.content or ""))
+                # content 可能是 str、list 或 None
+                if isinstance(m.content, list):
+                    # 把 list 裡的 text 項目串接成 str
+                    text = " ".join(
+                        item.get("text", "") if isinstance(item, dict) else str(item)
+                        for item in m.content
+                    )
+                else:
+                    text = m.content or ""
+                valid_messages.append(Message(role=role, content=text))
         except ValueError:
             log.debug("inference.skip_unsupported_role", role=m.role)
 
