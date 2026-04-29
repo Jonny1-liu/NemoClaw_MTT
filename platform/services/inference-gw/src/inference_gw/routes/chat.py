@@ -49,16 +49,22 @@ from pydantic import BaseModel
 
 
 class ChatMessage(BaseModel):
-    role: str
-    content: str
+    role:         str
+    content:      str | None = None   # tool 訊息可能是 None
+    tool_call_id: str | None = None
+    name:         str | None = None
+
+    model_config = {"extra": "allow"}   # 允許額外欄位（OpenAI API 相容）
 
 
 class ChatCompletionRequest(BaseModel):
     model:       str
     messages:    list[ChatMessage]
-    temperature: float = 0.7
-    max_tokens:  int   = 1024
-    stream:      bool  = False
+    temperature: float  = 0.7
+    max_tokens:  int    = 1024
+    stream:      bool   = False
+
+    model_config = {"extra": "allow"}   # 允許 tool_choice 等額外欄位
 
 
 # ─── 端點 ─────────────────────────────────────────────────────
@@ -76,12 +82,24 @@ async def chat_completions(
         )
 
     # 轉換為內部格式
+    # 過濾只有 system/user/assistant 的訊息傳給 LLM
+    # tool/function 等其他 role 先跳過（LLM 不直接接受）
+    supported_roles = {MessageRole.SYSTEM, MessageRole.USER, MessageRole.ASSISTANT}
+    valid_messages = []
+    for m in body.messages:
+        try:
+            role = MessageRole(m.role)
+            if role in supported_roles:
+                valid_messages.append(Message(role=role, content=m.content or ""))
+        except ValueError:
+            log.debug("inference.skip_unsupported_role", role=m.role)
+
+    if not valid_messages:
+        valid_messages = [Message(role=MessageRole.USER, content="hello")]
+
     internal_req = CompletionRequest(
         model=body.model,
-        messages=[
-            Message(role=MessageRole(m.role), content=m.content)
-            for m in body.messages
-        ],
+        messages=valid_messages,
         temperature=body.temperature,
         max_tokens=body.max_tokens,
         stream=body.stream,
