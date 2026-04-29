@@ -110,6 +110,7 @@ services:
       SERVICE_PORT: 3003
     ports:
       - "3003:3003"
+      - "8000:3003"   # vllm-local provider uses host.openshell.internal:8000
     volumes:
       - ./services/inference-gw/src:/workspace/services/inference-gw/src
       - ../logs/inference-gw:/workspace/services/inference-gw/logs/inference-gw
